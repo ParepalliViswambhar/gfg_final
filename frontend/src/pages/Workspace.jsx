@@ -15,7 +15,6 @@ const VERDICT_COLORS = {
 const VERDICT_BADGE = {
   'Real': 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
   'Likely Real': 'bg-teal-500/10 text-teal-400 border border-teal-500/20',
-  'Uncertain': 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   'Likely AI': 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
   'AI Generated': 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
 };
@@ -153,12 +152,38 @@ export default function Workspace() {
     return `${(bytes / Math.pow(1024, exp)).toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
   };
 
+  const isValidHttpUrl = (value) => {
+    try {
+      const parsed = new URL(String(value || '').trim());
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+      const host = parsed.hostname.toLowerCase();
+      const isLocalhost = host === 'localhost';
+      const isIPv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+      const hasPublicLikeDomain = host.includes('.');
+
+      return isLocalhost || isIPv4 || hasPublicLikeDomain;
+    } catch {
+      return false;
+    }
+  };
+
   const handleAnalyze = async () => {
     let payload = null;
     setErrorMsg('');
 
-    if (activeTab === 'text' && inputVal.trim()) payload = { type: 'text', content: inputVal };
-    if (activeTab === 'url' && urlVal.trim()) payload = { type: 'url', content: urlVal.trim() };
+    if (activeTab === 'text' && inputVal.trim()) {
+      const normalizedText = inputVal.trim();
+      payload = { type: 'text', content: normalizedText };
+    }
+    if (activeTab === 'url' && urlVal.trim()) {
+      const normalizedUrl = urlVal.trim();
+      if (!isValidHttpUrl(normalizedUrl)) {
+        setErrorMsg('Please enter a valid URL (example: https://example.com/article).');
+        return;
+      }
+      payload = { type: 'url', content: normalizedUrl };
+    }
     if (activeTab === 'image' && imageBase64) payload = { type: 'image', content: imageBase64 };
     if (activeTab === 'file' && fileName) payload = { type: 'file', content: fileContent, filename: fileName };
     if (activeTab === 'video' && videoBase64) payload = { type: 'video', content: videoBase64, filename: videoName, mimeType: videoMime };
@@ -193,38 +218,62 @@ export default function Workspace() {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let sseBuffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
+        sseBuffer += decoder.decode(value, { stream: true });
+        const events = sseBuffer.split('\n\n');
+        sseBuffer = events.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+        for (const event of events) {
+          const lines = event.split('\n').map((line) => line.trim()).filter(Boolean);
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+
+            let data;
             try {
-              const data = JSON.parse(line.slice(6));
-
-              if (data.stage === 'extracting') {
-                setPipelineStep(0);
-              } else if (data.stage === 'searching' || data.stage === 'detecting' || data.stage === 'fetching') {
-                setPipelineStep(1);
-              } else if (data.stage === 'verifying' || data.stage === 'analyzing' || data.stage === 'processing') {
-                setPipelineStep(2);
-              } else if (data.stage === 'complete' || data.stage === 'saved') {
-                if (data.result) {
-                  setResultsData(data.result);
-                  setPipelineStep(3);
-                  setState('RESULTS');
-                }
-              } else if (data.stage === 'error') {
-                throw new Error(data.message || 'Analysis failed');
-              }
+              data = JSON.parse(line.slice(6));
             } catch (parseErr) {
               console.error('Failed to parse SSE data:', parseErr);
+              continue;
+            }
+
+            if (data.stage === 'extracting') {
+              setPipelineStep(0);
+            } else if (data.stage === 'searching' || data.stage === 'detecting' || data.stage === 'fetching') {
+              setPipelineStep(1);
+            } else if (data.stage === 'verifying' || data.stage === 'analyzing' || data.stage === 'processing') {
+              setPipelineStep(2);
+            } else if (data.stage === 'complete' || data.stage === 'saved') {
+              if (data.result) {
+                setResultsData(data.result);
+                setPipelineStep(3);
+                setState('RESULTS');
+              }
+            } else if (data.stage === 'error') {
+              throw new Error(data.message || 'Analysis failed');
             }
           }
+        }
+      }
+
+      // Process any trailing complete event that did not end with a blank line.
+      const trailingLine = sseBuffer.trim();
+      if (trailingLine.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(trailingLine.slice(6));
+          if ((data.stage === 'complete' || data.stage === 'saved') && data.result) {
+            setResultsData(data.result);
+            setPipelineStep(3);
+            setState('RESULTS');
+          } else if (data.stage === 'error') {
+            throw new Error(data.message || 'Analysis failed');
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse trailing SSE data:', parseErr);
         }
       }
     } catch (err) {
@@ -324,9 +373,6 @@ export default function Workspace() {
                   ? 'bg-gradient-to-br from-white/[0.08] to-white/[0.02] border-white/10'
                   : 'bg-white/80 border-gray-200 shadow-xl'
               }`}>
-                <div className={`absolute -inset-[2px] bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-3xl blur-xl opacity-20 pointer-events-none ${
-                  theme === 'dark' ? 'animate-pulse' : ''
-                }`} />
                 <div className="relative z-10">
 
                   {activeTab === 'text' && (
@@ -631,7 +677,6 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
             transition={{ delay: 0.2 }}
             className={cn("text-4xl font-bold px-8 py-6 rounded-2xl text-center shadow-glow",
               data.aiDetection.verdict === 'Real' || data.aiDetection.verdict === 'Likely Real' ? "bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 text-emerald-400 border-2 border-emerald-500/30" :
-              data.aiDetection.verdict === 'Uncertain' ? "bg-gradient-to-br from-amber-500/20 to-amber-600/20 text-amber-400 border-2 border-amber-500/30" :
               "bg-gradient-to-br from-rose-500/20 to-rose-600/20 text-rose-400 border-2 border-rose-500/30")}>
             {data.aiDetection.verdict}
           </motion.div>
@@ -641,7 +686,7 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
             const isReal = data.aiDetection.verdict === 'Real' || data.aiDetection.verdict === 'Likely Real';
             const displayProb = isReal ? 100 - aiProb : aiProb;
             const label = isReal ? 'Real Confidence' : 'AI Probability';
-            const barColor = isReal ? 'from-emerald-500 to-emerald-600' : data.aiDetection.verdict === 'Uncertain' ? 'from-amber-500 to-amber-600' : 'from-rose-500 to-rose-600';
+            const barColor = isReal ? 'from-emerald-500 to-emerald-600' : 'from-rose-500 to-rose-600';
             return (
               <div>
                 <div className="flex justify-between text-sm text-slate-400 mb-3">
@@ -692,7 +737,7 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
   const isReal = data.aiDetection?.verdict === 'Real' || data.aiDetection?.verdict === 'Likely Real';
   const displayProb = isReal ? 100 - aiProb : aiProb;
   const probLabel = isReal ? 'Real Confidence' : 'AI Probability';
-  const barColor = isReal ? 'bg-emerald-400' : data.aiDetection?.verdict === 'Uncertain' ? 'bg-amber-400' : 'bg-rose-400';
+  const barColor = isReal ? 'bg-emerald-400' : 'bg-rose-400';
 
   // VIDEO RESULT VIEW
   if (isVideoResult) {
@@ -909,40 +954,47 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
                 <p className="text-sm text-zinc-400">Analyzing writing patterns and style</p>
               </div>
             </div>
-            <div className="flex items-center gap-6">
+            {data.aiTextDetection.isInsufficient ? (
               <div className="text-right">
-                <div className={cn(
-                  "text-2xl font-bold mb-1",
-                  data.aiTextDetection.isAIGenerated ? "text-rose-400" : "text-emerald-400"
-                )}>
-                  {data.aiTextDetection.verdict}
+                <div className="text-2xl font-bold mb-1 text-amber-400">Insufficient Content</div>
+                <div className="text-xs text-zinc-500">Add more meaningful text for AI detection</div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-6">
+                <div className="text-right">
+                  <div className={cn(
+                    "text-2xl font-bold mb-1",
+                    data.aiTextDetection.isAIGenerated ? "text-rose-400" : "text-emerald-400"
+                  )}>
+                    {data.aiTextDetection.verdict}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {data.aiTextDetection.confidence}% confidence
+                  </div>
                 </div>
-                <div className="text-xs text-zinc-500">
-                  {data.aiTextDetection.confidence}% confidence
+                <div className="w-24 h-24 relative">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle cx="48" cy="48" r="40" className="stroke-zinc-800 stroke-[6] fill-none" />
+                    <motion.circle
+                      cx="48"
+                      cy="48"
+                      r="40"
+                      className={cn(
+                        "stroke-[6] fill-none stroke-linecap-round",
+                        data.aiTextDetection.isAIGenerated ? "stroke-rose-400" : "stroke-emerald-400"
+                      )}
+                      strokeDasharray="251"
+                      initial={{ strokeDashoffset: 251 }}
+                      animate={{ strokeDashoffset: 251 - (251 * data.aiTextDetection.confidence) / 100 }}
+                      transition={{ duration: 1.5, ease: 'easeOut', delay: 0.3 }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-xl font-bold text-white">{data.aiTextDetection.confidence}%</span>
+                  </div>
                 </div>
               </div>
-              <div className="w-24 h-24 relative">
-                <svg className="w-full h-full transform -rotate-90">
-                  <circle cx="48" cy="48" r="40" className="stroke-zinc-800 stroke-[6] fill-none" />
-                  <motion.circle
-                    cx="48"
-                    cy="48"
-                    r="40"
-                    className={cn(
-                      "stroke-[6] fill-none stroke-linecap-round",
-                      data.aiTextDetection.isAIGenerated ? "stroke-rose-400" : "stroke-emerald-400"
-                    )}
-                    strokeDasharray="251"
-                    initial={{ strokeDashoffset: 251 }}
-                    animate={{ strokeDashoffset: 251 - (251 * data.aiTextDetection.confidence) / 100 }}
-                    transition={{ duration: 1.5, ease: 'easeOut', delay: 0.3 }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-xl font-bold text-white">{data.aiTextDetection.confidence}%</span>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
           {data.aiTextDetection.indicators && data.aiTextDetection.indicators.length > 0 && (
             <div className="mt-4 pt-4 border-t border-white/5">
@@ -978,53 +1030,63 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
 
         {/* Right: Claim Cards */}
         <div className="flex-[0.6] flex flex-col gap-4 overflow-y-auto pb-10 pr-2">
-          {data.claims.map((claim, idx) => (
-            <motion.div key={claim.id}
-              initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 + idx * 0.1 }}
-              className="glass-card rounded-2xl p-5 lg:p-6 border border-white/5 hover:border-white/10 transition-all">
-              <div className="flex justify-between items-start mb-4">
-                <span className={cn('px-3 py-1 text-xs font-bold tracking-wider rounded-lg uppercase', VERDICT_COLORS[claim.verdict])}>
-                  {claim.verdict}
-                </span>
-                <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
-                  CONFIDENCE
-                  <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div className={cn('h-full', claim.confidence > 80 ? 'bg-teal-400' : claim.confidence > 50 ? 'bg-amber-400' : 'bg-zinc-500')}
-                      style={{ width: `${claim.confidence}%` }} />
-                  </div>
-                  {claim.confidence}%
-                </div>
-              </div>
-              <h3 className="text-xl font-medium mb-4 pr-8 text-white">"{claim.text}"</h3>
-              <div className="bg-black/30 rounded-xl p-4 border border-white/[0.02] mb-4 text-sm leading-relaxed text-zinc-300">
-                <div className="flex items-center gap-2 mb-2 text-zinc-500 font-semibold text-xs tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5" /> AI REASONING
-                </div>
-                {claim.reasoning}
-              </div>
-              {claim.evidence && claim.evidence.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <div className="text-xs font-semibold text-zinc-500 tracking-wider mb-3">SUPPORTING EVIDENCE</div>
-                  <div className="grid gap-2">
-                    {claim.evidence.map((ev, i) => (
-                      <a href={ev.url} key={i} target="_blank" rel="noreferrer"
-                        className="flex gap-3 items-center p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 group/link">
-                        <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
-                          <LinkIcon className="w-4 h-4 text-zinc-400" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-200 truncate group-hover/link:text-blue-400 transition-colors">{ev.title}</p>
-                          <p className="text-xs text-zinc-500 truncate">{ev.snippet}</p>
-                        </div>
-                        <ExternalLink className="w-4 h-4 text-zinc-600 group-hover/link:text-blue-400" />
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
+          {(!data.claims || data.claims.length === 0) ? (
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-card rounded-2xl p-8 text-center flex flex-col items-center justify-center border border-white/5 bg-white/[0.02] h-full">
+               <div className="w-16 h-16 rounded-full bg-zinc-800/50 flex items-center justify-center mb-4">
+                 <CheckCircle2 className="w-8 h-8 text-zinc-500" />
+               </div>
+               <h3 className="text-xl font-medium text-white mb-2">No Verifiable Claims Found</h3>
+               <p className="text-zinc-400 text-sm max-w-sm">The text provided did not contain any factual claims that could be independently verified. Try submitting a news article or factual statement.</p>
             </motion.div>
-          ))}
+          ) : (
+            data.claims.map((claim, idx) => (
+              <motion.div key={claim.id}
+                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.2 + idx * 0.1 }}
+                className="glass-card rounded-2xl p-5 lg:p-6 border border-white/5 hover:border-white/10 transition-all overflow-hidden flex flex-col">
+                <div className="flex justify-between items-start mb-4 gap-4">
+                  <span className={cn('px-3 py-1 text-xs font-bold tracking-wider rounded-lg uppercase flex-shrink-0', VERDICT_COLORS[claim.verdict])}>
+                    {claim.verdict}
+                  </span>
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-500">
+                    CONFIDENCE
+                    <div className="w-16 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <div className={cn('h-full', claim.confidence > 80 ? 'bg-teal-400' : claim.confidence > 50 ? 'bg-amber-400' : 'bg-zinc-500')}
+                        style={{ width: `${claim.confidence}%` }} />
+                    </div>
+                    {claim.confidence}%
+                  </div>
+                </div>
+                <h3 className="text-xl font-medium mb-4 pr-8 text-white break-words">"{claim.text}"</h3>
+                <div className="bg-black/30 rounded-xl p-4 border border-white/[0.02] mb-4 text-sm leading-relaxed text-zinc-300 break-words whitespace-pre-wrap">
+                  <div className="flex items-center gap-2 mb-2 text-zinc-500 font-semibold text-xs tracking-wider">
+                    <Sparkles className="w-3.5 h-3.5" /> AI REASONING
+                  </div>
+                  {claim.reasoning}
+                </div>
+                {claim.evidence && claim.evidence.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-white/5">
+                    <div className="text-xs font-semibold text-zinc-500 tracking-wider mb-3">SUPPORTING EVIDENCE</div>
+                    <div className="grid gap-2">
+                      {claim.evidence.map((ev, i) => (
+                        <a href={ev.url} key={i} target="_blank" rel="noreferrer"
+                          className="flex gap-3 items-center p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors border border-transparent hover:border-white/5 group/link overflow-hidden w-full">
+                          <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                            <LinkIcon className="w-4 h-4 text-zinc-400" />
+                          </div>
+                          <div className="flex-1 min-w-0 overflow-hidden">
+                            <p className="text-sm font-medium text-slate-200 truncate group-hover/link:text-blue-400 transition-colors">{ev.title}</p>
+                            <p className="text-xs text-zinc-500 truncate">{ev.snippet}</p>
+                          </div>
+                          <ExternalLink className="w-4 h-4 text-zinc-600 group-hover/link:text-blue-400 flex-shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            ))
+          )}
         </div>
       </div>
     </motion.div>

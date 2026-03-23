@@ -14,6 +14,38 @@ const { uploadMedia } = require('../utils/cloudinaryUpload');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
+const isValidHttpUrl = (value) => {
+    try {
+        const parsed = new URL(String(value || '').trim());
+        if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+        const host = parsed.hostname.toLowerCase();
+        const isLocalhost = host === 'localhost';
+        const isIPv4 = /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+        const hasPublicLikeDomain = host.includes('.');
+
+        return isLocalhost || isIPv4 || hasPublicLikeDomain;
+    } catch {
+        return false;
+    }
+};
+
+const normalizeMediaVerdict = (verdict, aiProbability) => {
+    const normalized = String(verdict || '').trim().toLowerCase();
+    const probability = Number.isFinite(aiProbability)
+        ? aiProbability
+        : Number(aiProbability);
+    const pct = probability > 1 ? probability : probability * 100;
+
+    if (normalized === 'real') return 'Real';
+    if (normalized === 'likely real') return 'Likely Real';
+    if (normalized === 'likely ai') return 'Likely AI';
+    if (normalized === 'ai generated') return 'AI Generated';
+    if (normalized === 'uncertain') return pct >= 50 ? 'Likely AI' : 'Likely Real';
+
+    return pct >= 50 ? 'Likely AI' : 'Likely Real';
+};
+
 router.post('/submit', auth, async (req, res) => {
     try {
         const { text, type, content, filename } = req.body;
@@ -39,6 +71,16 @@ router.post('/submit', auth, async (req, res) => {
         let aiTextDetection = null;
 
         if (inputType === 'url') {
+            if (!isValidHttpUrl(inputText)) {
+                sendUpdate({
+                    stage: 'error',
+                    message: 'Please enter a valid URL (example: https://example.com/article).',
+                    error: 'INVALID_URL'
+                });
+                res.end();
+                return;
+            }
+
             sendUpdate({ stage: 'fetching', progress: 10, message: 'Fetching URL content...' });
 
             let response;
@@ -158,7 +200,7 @@ Return ONLY this JSON:
   "claims": [],
   "aiDetection": {
     "ai_probability": 0-100,
-    "verdict": "Real|Likely Real|Uncertain|Likely AI|AI Generated",
+        "verdict": "Real|Likely Real|Likely AI|AI Generated",
     "indicators": ["reason1", "reason2", "reason3"]
   }
 }
@@ -170,7 +212,7 @@ Consider:
 4. Texture uniformity
 5. Background inconsistencies
 
-verdict must be exactly: Real, Likely Real, Uncertain, Likely AI, or AI Generated
+verdict must be exactly: Real, Likely Real, Likely AI, or AI Generated
 ai_probability is 0-100 where 100 means definitely AI generated`;
 
             try {
@@ -184,6 +226,9 @@ ai_probability is 0-100 where 100 means definitely AI generated`;
                 aiText = aiText.replace(/^```|```$/g, '').trim();
                 parsedResult = JSON.parse(aiText);
                 aiDetection = parsedResult.aiDetection || null;
+                if (aiDetection) {
+                    aiDetection.verdict = normalizeMediaVerdict(aiDetection.verdict, aiDetection.ai_probability);
+                }
             } catch (aiErr) {
                 console.error('Image analysis failed:', aiErr.message);
                 parsedResult = {
@@ -195,7 +240,7 @@ ai_probability is 0-100 where 100 means definitely AI generated`;
                 };
                 aiDetection = {
                     ai_probability: 50,
-                    verdict: "Uncertain",
+                    verdict: "Likely AI",
                     indicators: ["Detection unavailable - please try again"]
                 };
             }
@@ -252,7 +297,7 @@ Return ONLY this JSON:
   "claims": [],
   "aiDetection": {
     "ai_probability": 0-100,
-    "verdict": "Real|Likely Real|Uncertain|Likely AI|AI Generated",
+        "verdict": "Real|Likely Real|Likely AI|AI Generated",
     "indicators": ["reason1", "reason2", "reason3", "reason4", "reason5"]
   }
 }
@@ -267,7 +312,7 @@ Analyze for:
 7. Edge artifacts around face or body
 8. Temporal consistency issues between frames
 
-verdict must be exactly: Real, Likely Real, Uncertain, Likely AI, or AI Generated
+verdict must be exactly: Real, Likely Real, Likely AI, or AI Generated
 ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
 
             try {
@@ -285,6 +330,9 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
                 
                 parsedResult = JSON.parse(videoText);
                 aiDetection = parsedResult.aiDetection || null;
+                if (aiDetection) {
+                    aiDetection.verdict = normalizeMediaVerdict(aiDetection.verdict, aiDetection.ai_probability);
+                }
                 
                 sendUpdate({ stage: 'verifying', progress: 80, message: 'Finalizing deepfake analysis...' });
             } catch (videoErr) {
@@ -298,7 +346,7 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
                 };
                 aiDetection = {
                     ai_probability: 50,
-                    verdict: "Uncertain",
+                    verdict: "Likely AI",
                     indicators: ["Analysis unavailable - video may be too long or format unsupported", "Try a shorter video clip (under 30 seconds)", "Supported formats: MP4, MOV, WEBM"]
                 };
             }
@@ -363,11 +411,11 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
 
         } else {
             // Plain text analysis
-            if (inputText.length < 10) {
+            if (!String(inputText || '').trim()) {
                 sendUpdate({ 
                     stage: 'error', 
-                    message: "Text is too short to analyze. Please provide at least 10 characters.",
-                    error: "TEXT_TOO_SHORT"
+                    message: "Please provide text to analyze.",
+                    error: "TEXT_EMPTY"
                 });
                 res.end();
                 return;

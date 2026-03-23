@@ -10,8 +10,15 @@ class ClaimExtractorAgent {
   }
 
   async extract(text) {
+    const safeText = String(text || '').trim();
+
+    // Fast-path for conversational input so the UI does not appear stuck on claim extraction.
+    if (this.isLikelyNonFactual(safeText)) {
+      return [];
+    }
+
     // Limit text length to reduce processing time
-    const truncatedText = text.substring(0, 2000);
+    const truncatedText = safeText.substring(0, 2000);
     
     const extractionPrompt = `Extract up to 5 key verifiable claims from this text. Focus on the most important facts.
 
@@ -27,7 +34,11 @@ Return ONLY JSON array:
 [{"id": 1, "claim": "...", "context": "...", "isTemporal": false}]`;
 
     try {
-      const result = await this.model.generateContent(extractionPrompt);
+      const result = await this.withTimeout(
+        this.model.generateContent(extractionPrompt),
+        18000,
+        'Claim extraction timed out'
+      );
       let responseText = result.response.text().trim();
       
       // Remove markdown code blocks if present
@@ -41,8 +52,45 @@ Return ONLY JSON array:
       return this.validateAndDeduplicate(claims).slice(0, 5);
     } catch (error) {
       console.error('Claim extraction failed:', error);
-      throw new Error('Failed to extract claims from text');
+      // Fail open: return no claims rather than hanging the UX for non-critical extraction failures.
+      return [];
     }
+  }
+
+  withTimeout(promise, timeoutMs, message) {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
+  }
+
+  isLikelyNonFactual(text) {
+    if (!text || text.length < 15) return true;
+
+    const normalized = text.toLowerCase().replace(/\s+/g, ' ').trim();
+    const casualPatterns = [
+      /^(hi|hello|hey|yo|hii|hlo)[!,. ]*$/,
+      /how are you/,
+      /what'?s up/,
+      /good (morning|afternoon|evening|night)/,
+      /^thank(s| you)?[!,. ]*$/
+    ];
+
+    if (casualPatterns.some((pattern) => pattern.test(normalized))) {
+      return true;
+    }
+
+    const sentences = normalized.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean);
+    if (sentences.length === 0) return true;
+
+    const factualSignals = /(\d|%|\$|\b(million|billion|according to|reported|study|research|published|in \d{4}|is|are|was|were|has|have)\b)/i;
+    const hasFactualSignal = sentences.some((sentence) => factualSignals.test(sentence));
+
+    return !hasFactualSignal;
   }
 
   validateAndDeduplicate(claims) {

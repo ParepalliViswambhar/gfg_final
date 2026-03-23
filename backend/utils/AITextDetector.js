@@ -11,6 +11,18 @@ class AITextDetector {
 
   async detect(text) {
     try {
+      const wordCount = this.getWordCount(text);
+      if (this.isLowInformationText(text, wordCount)) {
+        return {
+          isAIGenerated: null,
+          confidence: null,
+          verdict: 'Insufficient Content',
+          indicators: ['Text is too short or lacks meaningful language patterns for reliable AI detection.'],
+          isInsufficient: true,
+          wordCount
+        };
+      }
+
       // Calculate multiple signals
       const burstiness = this.calculateBurstiness(text);
       const patterns = this.detectAIPatterns(text);
@@ -38,17 +50,43 @@ class AITextDetector {
         isAIGenerated: aiProbability > 0.65,
         confidence: Math.round(aiProbability * 100),
         verdict: this.getVerdict(aiProbability),
-        indicators: indicators.slice(0, 5)
+        indicators: indicators.slice(0, 5),
+        isInsufficient: false,
+        wordCount
       };
     } catch (error) {
       console.error('AI detection failed:', error);
       return {
         isAIGenerated: false,
-        confidence: 50,
-        verdict: 'Uncertain',
-        indicators: ['Detection analysis unavailable']
+        confidence: 45,
+        verdict: 'Likely Human',
+        indicators: ['Detection analysis unavailable'],
+        isInsufficient: false,
+        wordCount: this.getWordCount(text)
       };
     }
+  }
+
+  getWordCount(text) {
+    return String(text || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .length;
+  }
+
+  isLowInformationText(text, wordCount) {
+    if (wordCount < 3) return true;
+
+    const cleaned = String(text || '').toLowerCase().replace(/[^a-z\s]/g, ' ').trim();
+    const tokens = cleaned.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) return true;
+
+    const uniqueWords = new Set(tokens).size;
+    const repetitiveWords = uniqueWords <= 1 && tokens.length <= 8;
+    const looksLikeCharacterSpam = tokens.every((token) => /^([a-z])\1{3,}$/.test(token));
+
+    return repetitiveWords || looksLikeCharacterSpam;
   }
 
   calculateBurstiness(text) {
@@ -175,9 +213,8 @@ Where score: 0.0 = definitely human, 1.0 = definitely AI`;
 
   getVerdict(probability) {
     if (probability >= 0.85) return 'AI Generated';
-    if (probability >= 0.65) return 'Likely AI';
-    if (probability >= 0.35) return 'Uncertain';
-    if (probability >= 0.15) return 'Likely Human';
+    if (probability >= 0.55) return 'Likely AI';
+    if (probability >= 0.25) return 'Likely Human';
     return 'Human Written';
   }
 }

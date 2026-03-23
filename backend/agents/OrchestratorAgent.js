@@ -28,7 +28,16 @@ class OrchestratorAgent {
       }
 
       if (claims.length === 0) {
-        return this.generateReport([], text);
+        const report = this.generateReport([], text);
+        if (progressCallback) {
+          progressCallback({ 
+            stage: 'complete', 
+            progress: 100,
+            message: 'Analysis complete: No verifiable claims found.',
+            result: report 
+          });
+        }
+        return report;
       }
 
       // Limit to 5 claims to avoid rate limiting
@@ -52,7 +61,11 @@ class OrchestratorAgent {
             });
           }
 
-          claim.evidence = await this.retrieverAgent.retrieve(claim);
+          claim.evidence = await this.withTimeout(
+            this.retrieverAgent.retrieve(claim),
+            15000,
+            'Evidence retrieval timed out'
+          );
 
           // Add delay between claims to avoid rate limiting
           if (i < limitedClaims.length - 1) {
@@ -71,7 +84,11 @@ class OrchestratorAgent {
             });
           }
 
-          const verification = await this.verificationAgent.verify(claim, claim.evidence);
+          const verification = await this.withTimeout(
+            this.verificationAgent.verify(claim, claim.evidence),
+            20000,
+            'Verification timed out'
+          );
           
           claim.verdict = verification.verdict;
           claim.confidence = verification.confidence;
@@ -122,6 +139,17 @@ class OrchestratorAgent {
 
   delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  withTimeout(promise, timeoutMs, message) {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
   }
 
   generateReport(claims, originalText) {
