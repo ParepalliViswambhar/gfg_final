@@ -12,6 +12,14 @@ export default function Auth() {
   const [error, setError] = useState('');
   const [focusedField, setFocusedField] = useState(null);
 
+  // Redirect to dashboard if already logged in
+  React.useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
+
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
     setError('');

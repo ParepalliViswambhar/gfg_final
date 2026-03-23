@@ -4,7 +4,7 @@ const auth = require('../middleware/auth');
 const History = require('../models/History');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const axios = require('axios');
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 const mammoth = require('mammoth');
 const OrchestratorAgent = require('../agents/OrchestratorAgent');
 const AITextDetector = require('../utils/AITextDetector');
@@ -159,7 +159,7 @@ router.post('/submit', auth, async (req, res) => {
         } else if (inputType === 'image') {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: 'gemini-3.1-flash-lite-preview',
+                model: 'gemini-1.5-flash',
                 generationConfig: { temperature: 0 }
             });
 
@@ -256,7 +256,7 @@ ai_probability is 0-100 where 100 means definitely AI generated`;
         } else if (inputType === 'video') {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: 'gemini-3.1-flash-lite-preview',
+                model: 'gemini-1.5-flash',
                 generationConfig: { temperature: 0 }
             });
 
@@ -373,8 +373,10 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
                 fileText = inputText;
             } else if (ext.endsWith('.pdf') && base64Content) {
                 const buffer = Buffer.from(base64Content, 'base64');
-                const pdfData = await pdfParse(buffer);
+                const parser = new PDFParse({ data: buffer });
+                const pdfData = await parser.getText();
                 fileText = pdfData.text || '';
+                await parser.destroy();
             } else if (ext.endsWith('.docx') && base64Content) {
                 const buffer = Buffer.from(base64Content, 'base64');
                 const docData = await mammoth.extractRawText({ buffer });
