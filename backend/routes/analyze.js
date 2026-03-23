@@ -159,7 +159,7 @@ router.post('/submit', auth, async (req, res) => {
         } else if (inputType === 'image') {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: 'gemini-1.5-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 generationConfig: { temperature: 0 }
             });
 
@@ -256,7 +256,7 @@ ai_probability is 0-100 where 100 means definitely AI generated`;
         } else if (inputType === 'video') {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({
-                model: 'gemini-1.5-flash',
+                model: 'gemini-3.1-flash-lite-preview',
                 generationConfig: { temperature: 0 }
             });
 
