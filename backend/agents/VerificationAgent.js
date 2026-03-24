@@ -12,9 +12,9 @@ class VerificationAgent {
   async verify(claim, evidence) {
     if (!evidence || evidence.length === 0) {
       return {
-        verdict: 'UNVERIFIABLE',
-        confidence: 100,
-        reasoning: 'No evidence found to verify this claim.',
+        verdict: 'PARTIAL',
+        confidence: 30,
+        reasoning: 'Insufficient evidence found to fully verify or refute this claim. More research may be needed.',
         citedSources: []
       };
     }
@@ -42,14 +42,13 @@ Analyze step-by-step:
 2. What's the verdict?
 
 VERDICT RULES:
-- TRUE: Evidence strongly supports
-- FALSE: Evidence contradicts
-- PARTIAL: Partially accurate
-- UNVERIFIABLE: Insufficient evidence
+- TRUE: Evidence strongly supports the claim
+- FALSE: Evidence clearly contradicts the claim
+- PARTIAL: Evidence partially supports or claim is partially accurate
 
 Return ONLY JSON:
 {
-  "verdict": "TRUE|FALSE|PARTIAL|UNVERIFIABLE",
+  "verdict": "TRUE|FALSE|PARTIAL",
   "confidence": 0-100,
   "reasoning": "Brief analysis with citations",
   "citedSources": [0, 1, 2]
@@ -66,8 +65,10 @@ Return ONLY JSON:
       const verification = JSON.parse(responseText);
 
       // Validate response
-      if (!['TRUE', 'FALSE', 'PARTIAL', 'UNVERIFIABLE'].includes(verification.verdict)) {
-        verification.verdict = 'UNVERIFIABLE';
+      if (!['TRUE', 'FALSE', 'PARTIAL'].includes(verification.verdict)) {
+        verification.verdict = 'PARTIAL';
+        verification.confidence = 40;
+        verification.reasoning = verification.reasoning || 'Unable to determine clear verdict from available evidence.';
       }
 
       verification.confidence = Math.max(0, Math.min(100, verification.confidence || 50));
@@ -76,9 +77,9 @@ Return ONLY JSON:
     } catch (error) {
       console.error('Verification failed:', error);
       return {
-        verdict: 'UNVERIFIABLE',
-        confidence: 0,
-        reasoning: 'Verification process encountered an error.',
+        verdict: 'PARTIAL',
+        confidence: 30,
+        reasoning: 'Unable to complete verification due to technical issues. The claim requires further investigation.',
         citedSources: []
       };
     }
@@ -126,7 +127,7 @@ Resolve this conflict by considering:
 
 Return ONLY valid JSON:
 {
-  "verdict": "TRUE|FALSE|PARTIAL|UNVERIFIABLE",
+  "verdict": "TRUE|FALSE|PARTIAL",
   "confidence": 0-100,
   "reasoning": "Explain which sources are more reliable and why",
   "citedSources": [preferred source indices]
@@ -142,8 +143,9 @@ Return ONLY valid JSON:
 
       const resolution = JSON.parse(responseText);
       
-      if (!['TRUE', 'FALSE', 'PARTIAL', 'UNVERIFIABLE'].includes(resolution.verdict)) {
+      if (!['TRUE', 'FALSE', 'PARTIAL'].includes(resolution.verdict)) {
         resolution.verdict = 'PARTIAL';
+        resolution.confidence = 40;
       }
 
       resolution.confidence = Math.max(0, Math.min(100, resolution.confidence || 50));

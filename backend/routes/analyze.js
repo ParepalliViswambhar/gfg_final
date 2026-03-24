@@ -227,7 +227,23 @@ ai_probability is 0-100 where 100 means definitely AI generated`;
                 parsedResult = JSON.parse(aiText);
                 aiDetection = parsedResult.aiDetection || null;
                 if (aiDetection) {
+                    // Normalize verdict first
                     aiDetection.verdict = normalizeMediaVerdict(aiDetection.verdict, aiDetection.ai_probability);
+                    
+                    // Fix: If verdict is Real/Likely Real but ai_probability is high, invert it
+                    const isRealVerdict = aiDetection.verdict === 'Real' || aiDetection.verdict === 'Likely Real';
+                    const aiProb = aiDetection.ai_probability > 1 ? aiDetection.ai_probability : aiDetection.ai_probability * 100;
+                    
+                    if (isRealVerdict && aiProb > 50) {
+                        // Verdict says Real but probability says AI - invert the probability
+                        aiDetection.ai_probability = 100 - aiProb;
+                    } else if (!isRealVerdict && aiProb < 50) {
+                        // Verdict says AI but probability says Real - invert the probability
+                        aiDetection.ai_probability = 100 - aiProb;
+                    } else {
+                        // Normalize to 0-100 range
+                        aiDetection.ai_probability = aiProb;
+                    }
                 }
             } catch (aiErr) {
                 console.error('Image analysis failed:', aiErr.message);
@@ -331,7 +347,23 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
                 parsedResult = JSON.parse(videoText);
                 aiDetection = parsedResult.aiDetection || null;
                 if (aiDetection) {
+                    // Normalize verdict first
                     aiDetection.verdict = normalizeMediaVerdict(aiDetection.verdict, aiDetection.ai_probability);
+                    
+                    // Fix: If verdict is Real/Likely Real but ai_probability is high, invert it
+                    const isRealVerdict = aiDetection.verdict === 'Real' || aiDetection.verdict === 'Likely Real';
+                    const aiProb = aiDetection.ai_probability > 1 ? aiDetection.ai_probability : aiDetection.ai_probability * 100;
+                    
+                    if (isRealVerdict && aiProb > 50) {
+                        // Verdict says Real but probability says AI - invert the probability
+                        aiDetection.ai_probability = 100 - aiProb;
+                    } else if (!isRealVerdict && aiProb < 50) {
+                        // Verdict says AI but probability says Real - invert the probability
+                        aiDetection.ai_probability = 100 - aiProb;
+                    } else {
+                        // Normalize to 0-100 range
+                        aiDetection.ai_probability = aiProb;
+                    }
                 }
                 
                 sendUpdate({ stage: 'verifying', progress: 80, message: 'Finalizing deepfake analysis...' });
@@ -454,11 +486,17 @@ ai_probability is 0-100 where 100 means definitely AI generated/deepfake`;
                     ? (filename || 'File upload')
                     : inputText;
 
-        // For images and videos, use AI probability as score
+        // For images: use AI probability as score
+        // For videos: use Real Confidence (inverse of AI probability) as score
         const finalScore = (inputType === 'image' || inputType === 'video') && parsedResult.aiDetection
-            ? (parsedResult.aiDetection.ai_probability > 1 
-                ? Math.round(parsedResult.aiDetection.ai_probability)
-                : Math.round(parsedResult.aiDetection.ai_probability * 100))
+            ? (() => {
+                const aiProb = parsedResult.aiDetection.ai_probability > 1 
+                    ? Math.round(parsedResult.aiDetection.ai_probability)
+                    : Math.round(parsedResult.aiDetection.ai_probability * 100);
+                // For images: show AI probability directly
+                // For videos: show Real Confidence (inverse)
+                return inputType === 'image' ? aiProb : (100 - aiProb);
+              })()
             : parsedResult.score;
 
         const historyObj = new History({

@@ -102,9 +102,9 @@ class OrchestratorAgent {
         } catch (claimError) {
           console.error(`Error processing claim ${i + 1}:`, claimError);
           // Continue with next claim even if one fails
-          claim.verdict = 'UNVERIFIABLE';
-          claim.confidence = 0;
-          claim.reasoning = 'Error processing this claim.';
+          claim.verdict = 'PARTIAL';
+          claim.confidence = 30;
+          claim.reasoning = 'Unable to process this claim due to technical issues.';
           claim.evidence = [];
         }
       }
@@ -165,7 +165,7 @@ class OrchestratorAgent {
       if (verdict === 'true') stats.true++;
       else if (verdict === 'false') stats.false++;
       else if (verdict === 'partial') stats.partial++;
-      else stats.unverifiable++;
+      else stats.unverifiable++; // Fallback for any unexpected values
     });
 
     // Calculate overall accuracy score
@@ -176,7 +176,7 @@ class OrchestratorAgent {
       const trueWeight = 100;
       const partialWeight = 50;
       const falseWeight = 0;
-      const unverifiableWeight = 30;
+      const unverifiableWeight = 40; // Slightly higher weight since it's now used for insufficient evidence
 
       score = Math.round(
         (stats.true * trueWeight + 

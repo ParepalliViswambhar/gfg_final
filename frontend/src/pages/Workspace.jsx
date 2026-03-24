@@ -9,7 +9,6 @@ const VERDICT_COLORS = {
   "TRUE": "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
   "FALSE": "bg-rose-500/10 text-rose-400 border border-rose-500/20",
   "PARTIAL": "bg-amber-500/10 text-amber-400 border border-amber-500/20",
-  "UNVERIFIABLE": "bg-slate-500/10 text-slate-400 border border-slate-500/20",
 };
 
 const VERDICT_BADGE = {
@@ -969,7 +968,10 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
                     {data.aiTextDetection.verdict}
                   </div>
                   <div className="text-xs text-zinc-500">
-                    {data.aiTextDetection.confidence}% confidence
+                    {data.aiTextDetection.isAIGenerated 
+                      ? `${data.aiTextDetection.confidence}% AI probability`
+                      : `${100 - data.aiTextDetection.confidence}% human probability`
+                    }
                   </div>
                 </div>
                 <div className="w-24 h-24 relative">
@@ -985,12 +987,22 @@ function ResultsView({ data, onReset, imagePreview, videoPreview, videoName }) {
                       )}
                       strokeDasharray="251"
                       initial={{ strokeDashoffset: 251 }}
-                      animate={{ strokeDashoffset: 251 - (251 * data.aiTextDetection.confidence) / 100 }}
+                      animate={{ 
+                        strokeDashoffset: 251 - (251 * (data.aiTextDetection.isAIGenerated 
+                          ? data.aiTextDetection.confidence 
+                          : (100 - data.aiTextDetection.confidence)
+                        )) / 100 
+                      }}
                       transition={{ duration: 1.5, ease: 'easeOut', delay: 0.3 }}
                     />
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-xl font-bold text-white">{data.aiTextDetection.confidence}%</span>
+                    <span className="text-xl font-bold text-white">
+                      {data.aiTextDetection.isAIGenerated 
+                        ? data.aiTextDetection.confidence 
+                        : (100 - data.aiTextDetection.confidence)
+                      }%
+                    </span>
                   </div>
                 </div>
               </div>

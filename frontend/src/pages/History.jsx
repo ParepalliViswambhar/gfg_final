@@ -86,7 +86,7 @@ const res = await fetch(`${API_URL}/api/history`, {
         
         // The backend returns the array directly
         const formattedData = data.map(item => {
-          // For images/videos, use AI probability as score if available
+          // For images/videos, use AI probability directly (backend already corrected it)
           let displayScore = item.score || 0;
           if ((item.type === 'image' || item.type === 'video') && item.aiDetection?.ai_probability) {
             const aiProb = item.aiDetection.ai_probability;
@@ -130,9 +130,9 @@ const res = await fetch(`${API_URL}/api/history`, {
   const rawAiProb = detection?.ai_probability || 0;
   const aiProb = rawAiProb > 1 ? Math.round(rawAiProb) : Math.round(rawAiProb * 100);
   const isReal = verdict === 'Real' || verdict === 'Likely Real';
-  const displayProb = isReal ? 100 - aiProb : aiProb;
+  const displayProb = aiProb; // Show AI probability directly, no inversion
   const boundedProb = Math.min(100, Math.max(0, displayProb || 0));
-  const probLabel = isReal ? 'Real Confidence' : 'AI Probability';
+  const probLabel = 'AI Probability';
   const indicators = Array.isArray(detection?.indicators)
     ? detection.indicators
     : detection?.indicators
@@ -212,7 +212,7 @@ const res = await fetch(`${API_URL}/api/history`, {
                   <div className="flex items-center gap-4">
                     <div className="flex flex-col items-end">
                       <span className="text-xs text-slate-500 font-semibold tracking-wider">
-                        {item.type === 'image' || item.type === 'video' ? 'AI PROBABILITY' : 'ACCURACY'}
+                        {item.type === 'image' ? 'AI PROBABILITY' : item.type === 'video' ? 'AI PROBABILITY' : 'ACCURACY'}
                       </span>
                       <span className={cn(
                         "text-2xl font-bold font-mono",
@@ -289,13 +289,7 @@ const res = await fetch(`${API_URL}/api/history`, {
                       strokeDasharray="352"
                       initial={{ strokeDashoffset: 352 }}
                       animate={{ 
-                        strokeDashoffset: 352 - (352 * (
-                          (isImageReport || isVideoReport) 
-                            ? (selectedReport.aiDetection?.ai_probability > 1 
-                                ? selectedReport.aiDetection.ai_probability 
-                                : selectedReport.aiDetection?.ai_probability * 100) || 0
-                            : (selectedReport.score || 0)
-                        )) / 100 
+                        strokeDashoffset: 352 - (352 * (selectedReport.score || 0)) / 100 
                       }}
                       transition={{ duration: 1.5, ease: "easeOut", delay: 0.1 }}
                     />
@@ -306,11 +300,7 @@ const res = await fetch(`${API_URL}/api/history`, {
                         ? 'bg-gradient-to-b from-white via-slate-200 to-slate-400 bg-clip-text text-transparent'
                         : 'text-gray-900'
                     }`}>
-                      {(isImageReport || isVideoReport) 
-                        ? Math.round(selectedReport.aiDetection?.ai_probability > 1 
-                            ? selectedReport.aiDetection.ai_probability 
-                            : (selectedReport.aiDetection?.ai_probability || 0) * 100)
-                        : Math.round(selectedReport.score || 0)}%
+                      {Math.round(selectedReport.score || 0)}%
                     </span>
                   </div>
                 </div>
@@ -413,7 +403,7 @@ const res = await fetch(`${API_URL}/api/history`, {
                   <div
                     className={cn(
                       "h-full",
-                      isReal ? "bg-emerald-400" : "bg-rose-400"
+                      aiProb < 50 ? "bg-emerald-400" : "bg-rose-400"
                     )}
                     style={{ width: `${boundedProb}%` }}
                   />
@@ -469,7 +459,7 @@ const res = await fetch(`${API_URL}/api/history`, {
                   <div
                     className={cn(
                       "h-full",
-                      isReal ? "bg-emerald-400" : "bg-rose-400"
+                      aiProb < 50 ? "bg-emerald-400" : "bg-rose-400"
                     )}
                     style={{ width: `${boundedProb}%` }}
                   />

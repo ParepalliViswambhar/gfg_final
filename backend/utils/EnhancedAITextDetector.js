@@ -289,8 +289,9 @@ Where score: 0.0 = definitely human, 1.0 = definitely AI`;
 
   getVerdict(probability) {
     if (probability >= 0.85) return 'AI Generated';
-    if (probability >= 0.55) return 'Likely AI';
-    if (probability >= 0.25) return 'Likely Human';
+    if (probability >= 0.65) return 'Likely AI';
+    if (probability >= 0.35) return 'Uncertain';
+    if (probability >= 0.15) return 'Likely Human';
     return 'Human Written';
   }
 }
