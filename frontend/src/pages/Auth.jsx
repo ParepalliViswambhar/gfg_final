@@ -96,9 +96,9 @@ export default function Auth() {
           
           <div className="flex flex-col gap-8 mt-10">
             {[
-              { title: 'Input Text or URL', desc: 'Paste the content or provide a link to the article you want to verify.' },
-              { title: 'AI Extraction', desc: 'Our system automatically extracts all factual claims from the text.' },
-              { title: 'Verify & Review', desc: 'We cross-reference claims against trusted sources and provide a detailed analysis.' }
+              { title: 'Upload Content', desc: 'Paste text, provide a URL, or upload images, videos, and documents for analysis.' },
+              { title: 'AI Analysis', desc: 'Our system extracts claims, detects AI-generated content, and identifies deepfakes.' },
+              { title: 'Verify & Review', desc: 'Get detailed verification results with evidence from trusted sources and confidence scores.' }
             ].map((step, i) => (
               <motion.div 
                 key={step.title}
