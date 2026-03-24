@@ -52,6 +52,16 @@ Return ONLY JSON array:
       return this.validateAndDeduplicate(claims).slice(0, 5);
     } catch (error) {
       console.error('Claim extraction failed:', error);
+      
+      // Check if content was blocked by safety filters
+      if (error.message && error.message.includes('PROHIBITED_CONTENT')) {
+        throw new Error('Content was flagged by safety filters. Please try different content.');
+      }
+      
+      if (error.response?.promptFeedback?.blockReason === 'PROHIBITED_CONTENT') {
+        throw new Error('Content was flagged by safety filters. Please try different content.');
+      }
+      
       // Fail open: return no claims rather than hanging the UX for non-critical extraction failures.
       return [];
     }

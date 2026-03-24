@@ -16,7 +16,16 @@ class OrchestratorAgent {
         progressCallback({ stage: 'extracting', progress: 0, message: 'Extracting verifiable claims...' });
       }
 
-      const claims = await this.extractorAgent.extract(text);
+      let claims;
+      try {
+        claims = await this.extractorAgent.extract(text);
+      } catch (extractError) {
+        // Handle content safety filter errors
+        if (extractError.message && extractError.message.includes('safety filters')) {
+          throw new Error('Content was flagged by safety filters. Please ensure your content follows community guidelines and try again.');
+        }
+        throw extractError;
+      }
 
       if (progressCallback) {
         progressCallback({ 
